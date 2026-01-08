@@ -31,7 +31,7 @@ interface Props {
 
 let { title, banner, description, lang, setOGTypeArticle } = Astro.props;
 
-let ogImage: string;
+let ogImage: string | undefined = undefined;
 
 if (banner && typeof banner === 'string' && banner.trim() !== '') {
   if (banner.startsWith('http://') || banner.startsWith('https://')) {
@@ -42,17 +42,24 @@ if (banner && typeof banner === 'string' && banner.trim() !== '') {
 }
 
 const slug = Astro.url.pathname.split('/').filter(Boolean).pop();
-let pageData = {};
+
+interface PageData {
+  published?: Date | string;
+  updated?: Date | string;
+  tags?: string[];
+}
+
+let pageData: PageData = {};
 
 try {
   const allEntries = await getCollection("posts");
   const entry = allEntries.find(e => e.slug === slug);
-  if (entry) pageData = entry.data;
+  if (entry) pageData = entry.data as PageData;
 } catch (e) {
-  // No data, slient fail
+  // No data, silent fail
 }
 
-const formatDate = (date) => {
+const formatDate = (date: Date | string | undefined): string | null => {
   if (!date) return null;
   if (date instanceof Date) {
     return date.toISOString().split('T')[0];
@@ -66,7 +73,7 @@ const formatDate = (date) => {
 const publishedDate = formatDate(pageData.published);
 const updatedDate = formatDate(pageData.updated);
 
-const tags = pageData.tags || [];
+const tags: string[] = pageData.tags || [];
 
 // apply a class to the body element to decide the height of the banner, only used for initial page load
 // Swup can update the body for each page visit, but it's after the page transition, causing a delay for banner height change
@@ -131,7 +138,7 @@ const bannerOffset =
 		{setOGTypeArticle ? (
 		<>
 			<meta property="og:type" content="article" />
-			{tags.map((tag) => (
+			{tags.map((tag: string) => (
 			<meta property="article:tag" content={tag} />
 			))}
 			{publishedDate && <meta property="article:published_time" content={publishedDate} />}
