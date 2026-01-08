@@ -30,9 +30,7 @@ interface Props {
 
 let { title, banner, description, lang, setOGTypeArticle } = Astro.props;
 
-const currentPath = Astro.url.pathname;
-
-let ogImage: string | undefined = undefined;
+let ogImage: string;
 
 if (banner && typeof banner === 'string' && banner.trim() !== '') {
   if (banner.startsWith('http://') || banner.startsWith('https://')) {
