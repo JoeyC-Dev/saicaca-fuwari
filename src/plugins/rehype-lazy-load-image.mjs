@@ -1,4 +1,4 @@
-import { visit } from 'unist-util-visit';
+import { visit } from "unist-util-visit";
 
 /**
  * Add loading="lazy" attribute to all images
@@ -13,3 +13,4 @@ export function rehypeLazyLoadImage() {
 		});
 	};
 }
+
