@@ -1,6 +1,6 @@
 import sitemap from "@astrojs/sitemap";
 import svelte from "@astrojs/svelte";
-import tailwind from "@astrojs/tailwind";
+import tailwindcss from "@tailwindcss/vite";
 import { pluginCollapsibleSections } from "@expressive-code/plugin-collapsible-sections";
 import { pluginLineNumbers } from "@expressive-code/plugin-line-numbers";
 import swup from "@swup/astro";
@@ -35,9 +35,6 @@ export default defineConfig({
 		inlineStylesheets: 'auto',
 	},
 	integrations: [
-		tailwind({
-			nesting: true,
-		}),
 		swup({
 			theme: false,
 			animationClass: "transition-swup-", // see https://swup.js.org/options/#animationselector
@@ -189,6 +186,7 @@ export default defineConfig({
 	},
 	vite: {
 		plugins: [
+			tailwindcss(),
 			{
 				name: 'block-iconify-json-imports',
 				enforce: 'pre', // Run before vite:json plugin
@@ -228,42 +226,6 @@ export default defineConfig({
 						return;
 					}
 					warn(warning);
-				},
-				output: {
-					manualChunks: (id) => {
-						// Vendor chunking for better caching and code splitting
-						if (id.includes('node_modules')) {
-							// Exclude icon JSON data from bundles - loaded from API instead
-							if (id.includes('@iconify-json') || id.includes('@iconify/json')) {
-								return undefined;
-							}
-							// Split heavy libraries into separate chunks
-							if (id.includes('photoswipe')) {
-								return 'vendor-photoswipe';
-							}
-							if (id.includes('swup') || id.includes('@swup')) {
-								return 'vendor-swup';
-							}
-							if (id.includes('overlayscrollbars')) {
-								return 'vendor-scrollbar';
-							}
-							if (id.includes('@iconify/svelte')) {
-								return 'vendor-iconify';
-							}
-							if (id.includes('astro-icon')) {
-								return 'vendor-icons';
-							}
-							// Split Tailwind/CSS frameworks
-							if (id.includes('tailwindcss')) {
-								return 'vendor-tailwind';
-							}
-							// Other vendor dependencies
-							return 'vendor';
-						}
-					},
-					// Optimize output with smaller chunks
-					chunkFileNames: '_astro/[name].[hash].js',
-					assetFileNames: '_astro/[name].[hash][extname]',
 				},
 			},
 			// Enable aggressive tree-shaking

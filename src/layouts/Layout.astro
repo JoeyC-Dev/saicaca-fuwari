@@ -20,6 +20,7 @@ import type { Favicon } from "../types/config";
 import { pathsEqual, url } from "../utils/url-utils";
 import "katex/dist/katex.css";
 import { getCollection } from "astro:content";
+import CatWidget from '../components/widget/Cat.astro'
 
 interface Props {
 	title?: string;
@@ -53,7 +54,7 @@ let pageData: PageData = {};
 
 try {
   const allEntries = await getCollection("posts");
-  const entry = allEntries.find(e => e.slug === slug);
+  const entry = allEntries.find(e => e.id === slug);
   if (entry) pageData = entry.data as PageData;
 } catch (e) {
   // No data, silent fail
@@ -177,7 +178,7 @@ const bannerOffset =
 		<script is:inline define:vars={{DEFAULT_THEME, LIGHT_MODE, DARK_MODE, AUTO_MODE, BANNER_HEIGHT_EXTEND, PAGE_WIDTH, configHue}}>
 			// Load the theme from local storage
 			const theme = localStorage.getItem('theme') || DEFAULT_THEME;
-
+			
 			// Set data attribute for theme icon display
 			document.documentElement.setAttribute('data-theme-mode', theme);
 
@@ -206,7 +207,7 @@ const bannerOffset =
 			document.documentElement.style.setProperty('--hue', hue);
 			document.documentElement.style.setProperty('--banner-height-extend', `${offset}px`);
 		</script>
-
+		
 		{import.meta.env.PROD && <script is:inline define:vars={{scriptUrl: url('/pagefind/pagefind.js')}}>
 		async function loadPagefind() {
 			try {
@@ -242,7 +243,7 @@ const bannerOffset =
 			loadPagefind();
 		}
 		</script>}
-		
+
 		<style define:vars={{
 			configHue,
 			'page-width': `clamp(${PAGE_WIDTH}rem, 75vw, 140rem)`,
@@ -264,6 +265,7 @@ const bannerOffset =
 		<!-- increase the page height during page transition to prevent the scrolling animation from jumping -->
 		<div id="page-height-extend" class="hidden h-[300vh]"></div>
 	</body>
+	<CatWidget />
 </html>
 
 <style is:global define:vars={{
@@ -271,6 +273,8 @@ const bannerOffset =
 	'banner-height-home': `${BANNER_HEIGHT_HOME}vh`,
 	'banner-height': `${BANNER_HEIGHT}vh`,
 }}>
+@reference "tailwindcss";
+
 /* Swup navigation progress bar */
 .swup-progress-bar {
 	--progress-height: 3px;
@@ -316,33 +320,30 @@ const bannerOffset =
 	100% { width: 95%; filter: hue-rotate(var(--progress-hue-end)); }
 }
 
-@tailwind components;
-@layer components {
-	.enable-banner.is-home #banner-wrapper {
-		@apply h-[var(--banner-height-home)] translate-y-[var(--banner-height-extend)]
-	}
-	.enable-banner #banner-wrapper {
-		@apply h-[var(--banner-height-home)]
-	}
+.enable-banner.is-home #banner-wrapper {
+	@apply h-[var(--banner-height-home)] translate-y-[var(--banner-height-extend)];
+}
+.enable-banner #banner-wrapper {
+	@apply h-[var(--banner-height-home)];
+}
 
-	.enable-banner.is-home #banner {
-		@apply h-[var(--banner-height-home)] translate-y-0
-	}
-	.enable-banner #banner {
-		@apply h-[var(--banner-height-home)] translate-y-[var(--bannerOffset)]
-	}
-	.enable-banner.is-home #main-grid {
-		@apply translate-y-[var(--banner-height-extend)];
-	}
-	.enable-banner #top-row {
-		@apply h-[calc(var(--banner-height-home)_-_4.5rem)] transition-all duration-300
-	}
-	.enable-banner.is-home #sidebar-sticky {
-		@apply top-[calc(1rem_-_var(--banner-height-extend))]
-	}
-	.navbar-hidden {
-		@apply opacity-0 -translate-y-16
-	}
+.enable-banner.is-home #banner {
+	@apply h-[var(--banner-height-home)] translate-y-0;
+}
+.enable-banner #banner {
+	@apply h-[var(--banner-height-home)] translate-y-[var(--bannerOffset)];
+}
+.enable-banner.is-home #main-grid {
+	@apply translate-y-[var(--banner-height-extend)];
+}
+.enable-banner #top-row {
+	@apply h-[calc(var(--banner-height-home)_-_4.5rem)] transition-all duration-300;
+}
+.enable-banner.is-home #sidebar-sticky {
+	@apply top-[calc(1rem_-_var(--banner-height-extend))];
+}
+.navbar-hidden {
+	@apply opacity-0 -translate-y-16;
 }
 </style>
 
@@ -701,6 +702,7 @@ if (window?.swup?.hooks) {
 let backToTopBtn = document.getElementById('back-to-top-btn');
 let toc = document.getElementById('toc-wrapper');
 let navbar = document.getElementById('navbar-wrapper')
+
 // Cache viewport dimensions and page state to avoid forced reflows
 let viewportHeight = window.innerHeight
 let viewportWidth = window.innerWidth
