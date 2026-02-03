@@ -8,7 +8,10 @@ import { getSortedPosts } from "../utils/content-utils";
 
 export const getStaticPaths = (async ({ paginate }) => {
 	const allBlogPosts = await getSortedPosts();
-	return paginate(allBlogPosts, { pageSize: PAGE_SIZE });
+	// Generate pages starting from page 2 onwards (page 1 is handled by index.astro)
+	const pages = paginate(allBlogPosts, { pageSize: PAGE_SIZE });
+	// Filter out the first page to avoid conflict with index.astro
+	return pages.slice(1);
 }) satisfies GetStaticPaths;
 // https://github.com/withastro/astro/issues/6507#issuecomment-1489916992
 

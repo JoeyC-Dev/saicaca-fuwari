@@ -3,6 +3,7 @@ import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 
+import { ClientRouter } from "astro:transitions";
 import ConfigCarrier from "@components/ConfigCarrier.astro";
 import { profileConfig, siteConfig } from "@/config";
 import {
@@ -123,6 +124,7 @@ const bannerOffset =
 	  data-overlayscrollbars-initialize
 >
 	<head>
+		<!-- FOUC prevention disabled for debugging - CSS should be render-blocking by default -->
 
 		<title>{pageTitle}</title>
 
@@ -254,6 +256,9 @@ const bannerOffset =
 
 		<link rel="alternate" type="application/rss+xml" title={profileConfig.name} href={`${Astro.site}rss.xml`}/>
 
+		<!-- Astro Client Router for View Transitions -->
+		<ClientRouter />
+
 	</head>
 	<body class=" min-h-screen transition " class:list={[{"lg:is-home": isHomePage, "enable-banner": enableBanner}]}
 		  data-overlayscrollbars-initialize
@@ -264,6 +269,8 @@ const bannerOffset =
 
 		<!-- increase the page height during page transition to prevent the scrolling animation from jumping -->
 		<div id="page-height-extend" class="hidden h-[300vh]"></div>
+
+		<!-- FOUC script disabled for debugging -->
 	</body>
 	<CatWidget />
 </html>
@@ -361,7 +368,6 @@ import {
 	// ClickScrollPlugin
 } from 'overlayscrollbars';
 import {getHue, getStoredTheme, setHue, setTheme} from "../utils/setting-utils";
-import {pathsEqual, url} from "../utils/url-utils";
 import {
 	BANNER_HEIGHT,
 	BANNER_HEIGHT_HOME,
@@ -369,6 +375,7 @@ import {
 	MAIN_PANEL_OVERLAPS_BANNER_HEIGHT
 } from "../constants/constants";
 import { siteConfig } from '../config';
+import { transitionManager, supportsViewTransitions } from '../utils/transition-manager';
 
 /* Preload fonts */
 // (async function() {
@@ -574,7 +581,7 @@ function init() {
 
 	// Remove onload animations once they finish to prevent re-triggering
 	stripOnloadAnimations();
-	
+
 	// Delay initCustomScrollbar to after animations complete
 	setTimeout(() => {
 		initCustomScrollbar();
@@ -584,36 +591,79 @@ function init() {
 /* Load settings when entering the site */
 init();
 
-const setup = () => {
-	// Debug: Log all Swup events
-	// window.swup.hooks.on('visit:start', (visit) => {
-	// 	console.error('SWUP VISIT START:', visit.to.url, 'Stack:', new Error().stack);
-	// });
+// ============================================================
+// Unified Transition Event Handlers
+// Works with both View Transitions API (Astro ClientRouter) and Swup fallback
+// ============================================================
 
-	// TODO: temp solution to change the height of the banner
-/*
-	window.swup.hooks.on('animation:out:start', () => {
-		const path = window.location.pathname
-		const body = document.querySelector('body')
-		if (path[path.length - 1] === '/' && !body.classList.contains('is-home')) {
-			body.classList.add('is-home')
-		} else if (path[path.length - 1] !== '/' && body.classList.contains('is-home')) {
-			body.classList.remove('is-home')
-		}
-	})
-*/
-	// Progress bar
-	window.swup.hooks.on('visit:start', () => {
-		const bar = document.getElementById('swup-progress-bar');
-		if (!bar) return;
+// Progress bar - start loading animation
+function onTransitionStart() {
+	const bar = document.getElementById('swup-progress-bar');
+	if (bar) {
 		bar.classList.remove('is-loading', 'is-finishing', 'is-done');
 		bar.style.width = '0';
 		void bar.offsetWidth; // force reflow to restart animation
 		bar.classList.add('is-loading');
-	});
-	window.swup.hooks.on('visit:end', () => {
-		const bar = document.getElementById('swup-progress-bar');
-		if (!bar) return;
+	}
+
+	// Remove the delay for the first time page load
+	document.documentElement.style.setProperty('--content-delay', '0ms');
+
+	// Prevent elements from overlapping the navbar
+	if (bannerEnabled) {
+		let threshold = window.innerHeight * (BANNER_HEIGHT / 100) - 72 - 16;
+		let navbar = document.getElementById('navbar-wrapper');
+		if (navbar && document.body.classList.contains('lg:is-home')) {
+			if (document.body.scrollTop >= threshold || document.documentElement.scrollTop >= threshold) {
+				navbar.classList.add('navbar-hidden');
+			}
+		}
+	}
+
+	// Increase the page height during page transition to prevent scrolling animation from jumping
+	const heightExtend = document.getElementById('page-height-extend');
+	if (heightExtend) {
+		heightExtend.classList.remove('hidden');
+	}
+
+	// Hide the TOC while scrolling back to top
+	let toc = document.getElementById('toc-wrapper');
+	if (toc) {
+		toc.classList.add('toc-not-ready');
+	}
+}
+
+// Called after DOM swap - reinitialize components
+function onTransitionAfterSwap() {
+	// Update isHome state based on new body class (set by Astro at build time)
+	isHome = document.body.classList.contains('lg:is-home');
+	updateThresholds();
+
+	// Refresh DOM references after View Transition (old refs are stale)
+	refreshDomReferences();
+
+	// Show banner after page transition
+	showBanner();
+
+	initCustomScrollbar();
+	stripOnloadAnimations();
+
+	// Re-initialize navbar button handlers (display settings, menu)
+	if (typeof (window as any).loadNavbarButtons === 'function') {
+		(window as any).loadNavbarButtons();
+	}
+
+	// Keep page height extend visible during transition
+	const heightExtend = document.getElementById('page-height-extend');
+	if (heightExtend) {
+		heightExtend.classList.remove('hidden');
+	}
+}
+
+// Progress bar - complete and fade out
+function onTransitionEnd() {
+	const bar = document.getElementById('swup-progress-bar');
+	if (bar) {
 		// Phase 1: snap to 100%
 		bar.classList.remove('is-loading');
 		bar.classList.add('is-finishing');
@@ -622,86 +672,136 @@ const setup = () => {
 			bar.classList.remove('is-finishing');
 			bar.classList.add('is-done');
 		}, 250);
-	});
+	}
 
-	window.swup.hooks.on('link:click', () => {
-		// Remove the delay for the first time page load
-		document.documentElement.style.setProperty('--content-delay', '0ms')
-
-		// prevent elements from overlapping the navbar
-		if (!bannerEnabled) {
-			return
-		}
-		let threshold = window.innerHeight * (BANNER_HEIGHT / 100) - 72 - 16
-		let navbar = document.getElementById('navbar-wrapper')
-		if (!navbar || !document.body.classList.contains('lg:is-home')) {
-			return
-		}
-		if (document.body.scrollTop >= threshold || document.documentElement.scrollTop >= threshold) {
-			navbar.classList.add('navbar-hidden')
-		}
-	})
-	window.swup.hooks.on('content:replace', () => {
-		initCustomScrollbar();
-		stripOnloadAnimations();
-	})
-	window.swup.hooks.on('visit:start', (visit: {to: {url: string}}) => {
-		// change banner height immediately when a link is clicked
-		const bodyElement = document.querySelector('body')
-		if (pathsEqual(visit.to.url, url('/'))) {
-			bodyElement!.classList.add('lg:is-home');
-			isHome = true
-		} else {
-			bodyElement!.classList.remove('lg:is-home');
-			isHome = false
-		}
-
-		// Recalculate thresholds with new page state
-		updateThresholds()
-
-		// increase the page height during page transition to prevent the scrolling animation from jumping
-		const heightExtend = document.getElementById('page-height-extend')
+	setTimeout(() => {
+		const heightExtend = document.getElementById('page-height-extend');
 		if (heightExtend) {
-			heightExtend.classList.remove('hidden')
+			heightExtend.classList.add('hidden');
 		}
 
-		// Hide the TOC while scrolling back to top
-		let toc = document.getElementById('toc-wrapper');
+		// Just make the transition looks better
+		const toc = document.getElementById('toc-wrapper');
 		if (toc) {
-			toc.classList.add('toc-not-ready')
+			toc.classList.remove('toc-not-ready');
 		}
+	}, 200);
+}
+
+// Set up event handlers based on whether we're using View Transitions or Swup
+function setupTransitionHandlers() {
+	// Always set up Astro ClientRouter event handlers (works for all browsers)
+	console.log('[Layout] Setting up Astro ClientRouter event handlers');
+
+	document.addEventListener('astro:before-preparation', () => {
+		onTransitionStart();
 	});
-	window.swup.hooks.on('page:view', () => {
-		// hide the temp high element when the transition is done
-		const heightExtend = document.getElementById('page-height-extend')
-		if (heightExtend) {
-			heightExtend.classList.remove('hidden')
-		}
-	});
-	window.swup.hooks.on('visit:end', (_visit: {to: {url: string}}) => {
-		setTimeout(() => {
-			const heightExtend = document.getElementById('page-height-extend')
-			if (heightExtend) {
-				heightExtend.classList.add('hidden')
+
+	// astro:before-swap - copy theme/styles to new document to prevent black flash
+	document.addEventListener('astro:before-swap', (event: any) => {
+		const newDoc = event.newDocument;
+		if (newDoc && newDoc.documentElement) {
+			// Copy dark mode class
+			if (document.documentElement.classList.contains('dark')) {
+				newDoc.documentElement.classList.add('dark');
+			} else {
+				newDoc.documentElement.classList.remove('dark');
 			}
-
-            // Just make the transition looks better
-            const toc = document.getElementById('toc-wrapper');
-            if (toc) {
-                toc.classList.remove('toc-not-ready')
-            }
-        }, 200)
+			// Copy CSS custom properties (theme colors)
+			const currentStyle = document.documentElement.style;
+			newDoc.documentElement.style.setProperty('--hue', currentStyle.getPropertyValue('--hue'));
+			newDoc.documentElement.style.setProperty('--banner-height-extend', currentStyle.getPropertyValue('--banner-height-extend'));
+			// Copy theme mode attribute
+			const themeMode = document.documentElement.getAttribute('data-theme-mode');
+			if (themeMode) {
+				newDoc.documentElement.setAttribute('data-theme-mode', themeMode);
+			}
+			// Copy Expressive Code theme attribute (fixes code block theme after View Transitions)
+			const expressiveTheme = document.documentElement.getAttribute('data-theme');
+			if (expressiveTheme) {
+				newDoc.documentElement.setAttribute('data-theme', expressiveTheme);
+			}
+		}
 	});
-}
-if (window?.swup?.hooks) {
-	setup()
-} else {
-	document.addEventListener('swup:enable', setup)
+
+	document.addEventListener('astro:after-swap', () => {
+		onTransitionAfterSwap();
+	});
+
+	document.addEventListener('astro:page-load', () => {
+		onTransitionEnd();
+	});
+
+	// Only set up Swup fallback for browsers without View Transitions API
+	if (!supportsViewTransitions) {
+		// Using Swup fallback - set up handlers after Swup loads
+		console.log('[Layout] Using Swup fallback (View Transitions not supported)');
+
+		const setupSwupHandlers = () => {
+			if (!window.swup?.hooks) return;
+
+			// Debug: Log all Swup events
+			// window.swup.hooks.on('visit:start', (visit) => {
+			// 	console.error('SWUP VISIT START:', visit.to.url, 'Stack:', new Error().stack);
+			// });
+
+			// TODO: temp solution to change the height of the banner
+			/*
+			window.swup.hooks.on('animation:out:start', () => {
+				const path = window.location.pathname
+				const body = document.querySelector('body')
+				if (path[path.length - 1] === '/' && !body.classList.contains('is-home')) {
+					body.classList.add('is-home')
+				} else if (path[path.length - 1] !== '/' && body.classList.contains('is-home')) {
+					body.classList.remove('is-home')
+				}
+			})
+			*/
+
+			window.swup.hooks.on('visit:start', () => {
+				onTransitionStart();
+			});
+
+			window.swup.hooks.on('content:replace', () => {
+				onTransitionAfterSwap();
+			});
+
+			window.swup.hooks.on('page:view', () => {
+				// hide the temp high element when the transition is done
+				const heightExtend = document.getElementById('page-height-extend');
+				if (heightExtend) {
+					heightExtend.classList.remove('hidden');
+				}
+			});
+
+			window.swup.hooks.on('visit:end', (_visit: { to: { url: string } }) => {
+				onTransitionEnd();
+			});
+		};
+
+		if (window.swup?.hooks) {
+			setupSwupHandlers();
+		} else {
+			document.addEventListener('swup:enable', setupSwupHandlers);
+		}
+
+		// Initialize Swup fallback via transition manager
+		transitionManager.init();
+	}
 }
 
-let backToTopBtn = document.getElementById('back-to-top-btn');
-let toc = document.getElementById('toc-wrapper');
-let navbar = document.getElementById('navbar-wrapper')
+setupTransitionHandlers();
+
+let backToTopBtn: HTMLElement | null = document.getElementById('back-to-top-btn');
+let toc: HTMLElement | null = document.getElementById('toc-wrapper');
+let navbar: HTMLElement | null = document.getElementById('navbar-wrapper');
+
+// Re-query DOM elements after View Transitions (old references become stale)
+function refreshDomReferences() {
+	backToTopBtn = document.getElementById('back-to-top-btn');
+	toc = document.getElementById('toc-wrapper');
+	navbar = document.getElementById('navbar-wrapper');
+}
 
 // Cache viewport dimensions and page state to avoid forced reflows
 let viewportHeight = window.innerHeight
@@ -787,6 +887,8 @@ window.onresize = () => {
 </script>
 
 <script>
+import { supportsViewTransitions } from '../utils/transition-manager';
+
 let lightbox: any
 let photoSwipeLoaded = false
 
@@ -830,38 +932,55 @@ async function createPhotoSwipe() {
 	}
 }
 
-const setup = () => {
-	// Only load PhotoSwipe if there are images in the gallery
-	const hasGalleryImages = document.querySelector('.custom-md img, #post-cover img')
+function checkAndLoadPhotoSwipe() {
+	const hasGalleryImages = document.querySelector('.custom-md img, #post-cover img');
 	if (!lightbox && hasGalleryImages) {
 		console.log('Images found, will load PhotoSwipe');
-		createPhotoSwipe()
+		createPhotoSwipe();
 	} else if (!hasGalleryImages) {
 		console.log('PhotoSwipe not needed (no gallery images)');
 	}
-
-	window.swup.hooks.on("page:view", () => {
-		// Check for images on each page view
-		const hasImages = document.querySelector('.custom-md img, #post-cover img')
-		if (hasImages && !lightbox) {
-			console.log('Images found on page transition, loading PhotoSwipe');
-			createPhotoSwipe()
-		}
-	})
-
-	window.swup.hooks.on(
-		"content:replace",
-		() => {
-			lightbox?.destroy?.()
-			lightbox = null
-		},
-		{ before: true },
-	)
 }
 
-if (window.swup) {
-	setup()
+function destroyPhotoSwipe() {
+	lightbox?.destroy?.();
+	lightbox = null;
+}
+
+// Set up PhotoSwipe based on transition system
+if (supportsViewTransitions) {
+	// View Transitions mode
+	checkAndLoadPhotoSwipe();
+
+	document.addEventListener('astro:before-swap', () => {
+		destroyPhotoSwipe();
+	});
+
+	document.addEventListener('astro:after-swap', () => {
+		checkAndLoadPhotoSwipe();
+	});
 } else {
-	document.addEventListener("swup:enable", setup)
+	// Swup fallback mode
+	const setupSwupPhotoSwipe = () => {
+		checkAndLoadPhotoSwipe();
+
+		window.swup.hooks.on("page:view", () => {
+			checkAndLoadPhotoSwipe();
+		});
+
+		window.swup.hooks.on(
+			"content:replace",
+			() => {
+				destroyPhotoSwipe();
+			},
+			{ before: true },
+		);
+	};
+
+	if (window.swup) {
+		setupSwupPhotoSwipe();
+	} else {
+		document.addEventListener("swup:enable", setupSwupPhotoSwipe);
+	}
 }
 </script>
