@@ -270,9 +270,13 @@ const bannerOffset =
 		<!-- increase the page height during page transition to prevent the scrolling animation from jumping -->
 		<div id="page-height-extend" class="hidden h-[300vh]"></div>
 
+		<!-- Cat widget - persisted through View Transitions to stay static -->
+		<div class="fixed inset-0 pointer-events-none z-[10000]" transition:name="cat-widget" transition:persist>
+			<CatWidget />
+		</div>
+
 		<!-- FOUC script disabled for debugging -->
 	</body>
-	<CatWidget />
 </html>
 
 <style is:global define:vars={{
@@ -635,6 +639,10 @@ function onTransitionStart() {
 
 // Called after DOM swap - reinitialize components
 function onTransitionAfterSwap() {
+	// Reload theme and colors (critical for Swup mode where DOM is fully replaced)
+	loadTheme();
+	loadHue();
+
 	// Update isHome state based on new body class (set by Astro at build time)
 	isHome = document.body.classList.contains('lg:is-home');
 	updateThresholds();
@@ -658,6 +666,18 @@ function onTransitionAfterSwap() {
 	if (heightExtend) {
 		heightExtend.classList.remove('hidden');
 	}
+
+	// Update OverlayScrollbars immediately after DOM swap
+	// Helps Safari properly detect scrollable height
+	setTimeout(() => {
+		const bodyElement = document.querySelector('body');
+		if (bodyElement) {
+			const osInstance = OverlayScrollbars(bodyElement);
+			if (osInstance) {
+				osInstance.update(true);
+			}
+		}
+	}, 50);
 }
 
 // Progress bar - complete and fade out
@@ -685,20 +705,35 @@ function onTransitionEnd() {
 		if (toc) {
 			toc.classList.remove('toc-not-ready');
 		}
+
+		// Force OverlayScrollbars to recalculate scroll height after transition
+		// This fixes Safari scrollbar getting stuck at top during View Transitions
+		const bodyElement = document.querySelector('body');
+		if (bodyElement) {
+			const osInstance = OverlayScrollbars(bodyElement);
+			if (osInstance) {
+				osInstance.update(true);
+			}
+		}
 	}, 200);
 }
 
 // Set up event handlers based on whether we're using View Transitions or Swup
 function setupTransitionHandlers() {
-	// Always set up Astro ClientRouter event handlers (works for all browsers)
-	console.log('[Layout] Setting up Astro ClientRouter event handlers');
+	// Check if we should force Swup (Firefox) or use native View Transitions support
+	const forceSwup = (window as any).__forceSwup || !supportsViewTransitions;
 
-	document.addEventListener('astro:before-preparation', () => {
-		onTransitionStart();
-	});
+	if (!forceSwup) {
+		// Use View Transitions (Chrome/Safari)
+		console.log('[Layout] Setting up View Transitions handlers');
 
-	// astro:before-swap - copy theme/styles to new document to prevent black flash
-	document.addEventListener('astro:before-swap', (event: any) => {
+		document.addEventListener('astro:before-preparation', () => {
+			onTransitionStart();
+		});
+
+		// astro:before-swap - copy theme/styles to new document to prevent black flash
+		document.addEventListener('astro:before-swap', (event: any) => {
+			console.log('[Layout] astro:before-swap triggered');
 		const newDoc = event.newDocument;
 		if (newDoc && newDoc.documentElement) {
 			// Copy dark mode class
@@ -724,39 +759,28 @@ function setupTransitionHandlers() {
 		}
 	});
 
-	document.addEventListener('astro:after-swap', () => {
-		onTransitionAfterSwap();
-	});
+		document.addEventListener('astro:after-swap', () => {
+			onTransitionAfterSwap();
+		});
 
-	document.addEventListener('astro:page-load', () => {
-		onTransitionEnd();
-	});
+		document.addEventListener('astro:page-load', () => {
+			onTransitionEnd();
+		});
+	} else {
+		// Use Swup (Firefox or browsers without View Transitions)
+		console.log('[Layout] Using Swup fallback');
 
-	// Only set up Swup fallback for browsers without View Transitions API
-	if (!supportsViewTransitions) {
-		// Using Swup fallback - set up handlers after Swup loads
-		console.log('[Layout] Using Swup fallback (View Transitions not supported)');
+		// CRITICAL: Prevent Astro's ClientRouter from using View Transitions
+		// This stops the conflict between Astro's View Transitions and Swup
+		document.addEventListener('astro:before-preparation', (event: any) => {
+			console.log('[Layout] Preventing Astro View Transition, using Swup instead');
+			event.preventDefault();
+		});
 
 		const setupSwupHandlers = () => {
 			if (!window.swup?.hooks) return;
 
-			// Debug: Log all Swup events
-			// window.swup.hooks.on('visit:start', (visit) => {
-			// 	console.error('SWUP VISIT START:', visit.to.url, 'Stack:', new Error().stack);
-			// });
-
-			// TODO: temp solution to change the height of the banner
-			/*
-			window.swup.hooks.on('animation:out:start', () => {
-				const path = window.location.pathname
-				const body = document.querySelector('body')
-				if (path[path.length - 1] === '/' && !body.classList.contains('is-home')) {
-					body.classList.add('is-home')
-				} else if (path[path.length - 1] !== '/' && body.classList.contains('is-home')) {
-					body.classList.remove('is-home')
-				}
-			})
-			*/
+			console.log('[Layout] Swup handlers configured');
 
 			window.swup.hooks.on('visit:start', () => {
 				onTransitionStart();
@@ -767,14 +791,13 @@ function setupTransitionHandlers() {
 			});
 
 			window.swup.hooks.on('page:view', () => {
-				// hide the temp high element when the transition is done
 				const heightExtend = document.getElementById('page-height-extend');
 				if (heightExtend) {
 					heightExtend.classList.remove('hidden');
 				}
 			});
 
-			window.swup.hooks.on('visit:end', (_visit: { to: { url: string } }) => {
+			window.swup.hooks.on('visit:end', () => {
 				onTransitionEnd();
 			});
 		};
@@ -785,9 +808,19 @@ function setupTransitionHandlers() {
 			document.addEventListener('swup:enable', setupSwupHandlers);
 		}
 
-		// Initialize Swup fallback via transition manager
+		// Initialize Swup
 		transitionManager.init();
 	}
+}
+
+// Firefox detection MUST happen before setupTransitionHandlers
+const isFirefox = navigator.userAgent.toLowerCase().includes('firefox');
+console.log('[Layout] Browser detection - Firefox:', isFirefox);
+
+if (isFirefox) {
+	// Force Swup initialization for Firefox (treat it like View Transitions unsupported browser)
+	console.log('[Layout] Firefox detected - forcing Swup mode');
+	(window as any).__forceSwup = true;
 }
 
 setupTransitionHandlers();
@@ -948,7 +981,10 @@ function destroyPhotoSwipe() {
 }
 
 // Set up PhotoSwipe based on transition system
-if (supportsViewTransitions) {
+// Check if we're forcing Swup mode (Firefox)
+const useSwupForPhotoSwipe = (window as any).__forceSwup || !supportsViewTransitions;
+
+if (!useSwupForPhotoSwipe) {
 	// View Transitions mode
 	checkAndLoadPhotoSwipe();
 

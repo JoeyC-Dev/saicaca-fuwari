@@ -16,6 +16,12 @@ html.astro-transitioning #toc-wrapper {
     pointer-events: none;
 }
 
+/* Keep cat visible and static during View Transitions */
+html.astro-transitioning .cat {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
 /* Page transition animations with Swup (fallback for browsers without View Transitions) */
 /* Match View Transitions behavior: fade out quickly, then fade in from below */
 html.is-changing .transition-swup-fade {
@@ -137,6 +143,8 @@ a:focus-visible, button:focus-visible {
 ::view-transition-group(root),
 ::view-transition-group(navbar),
 ::view-transition-group(sidebar),
+::view-transition-group(banner),
+::view-transition-group(banner-credit),
 ::view-transition-group(main-content),
 ::view-transition-group(toc-content) {
     animation: none;
@@ -157,16 +165,18 @@ a:focus-visible, button:focus-visible {
 
 /* Navbar - subtle fade to acknowledge transition */
 ::view-transition-old(navbar) {
-    animation: vt-subtle-fade-out 150ms ease-out both;
+    animation: vt-subtle-fade-out 200ms ease-out both;
     will-change: opacity;
 }
 
 ::view-transition-new(navbar) {
-    animation: vt-subtle-fade-in 150ms ease-out 200ms both;
+    animation: vt-subtle-fade-in 200ms ease-out both;
     will-change: opacity;
 }
 
-/* TOC - instant hide to avoid awkward visibility while page jumps to top */
+/* Firefox uses Swup instead of View Transitions, so no Firefox-specific navbar needed */
+
+/* TOC - instant hide to avoid visibility while page jumps to top */
 ::view-transition-old(toc-content) {
     opacity: 0 !important;
     visibility: hidden !important;
@@ -177,9 +187,13 @@ a:focus-visible, button:focus-visible {
     animation: none;
 }
 
-/* Sidebar and root - no animation */
+/* Sidebar, banner, banner-credit, and root - no animation */
 ::view-transition-old(sidebar),
 ::view-transition-new(sidebar),
+::view-transition-old(banner),
+::view-transition-new(banner),
+::view-transition-old(banner-credit),
+::view-transition-new(banner-credit),
 ::view-transition-new(root) {
     animation: none;
 }
