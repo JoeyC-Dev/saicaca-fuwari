@@ -1,6 +1,15 @@
 @reference "./main.css";
 
+.markdown-content {
+    /* CRITICAL: Ensure immediate visibility and scrollability */
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+}
+
 .custom-md {
+    /* Performance optimizations for long content */
+    /* Removed content-visibility from parent to avoid breaking layout */
     h1 {
         @apply text-3xl;
     }
@@ -87,9 +96,25 @@
 
     .expressive-code {
         @apply my-4;
+        /* Performance: Defer rendering of off-screen code blocks */
+        content-visibility: auto;
+        contain-intrinsic-size: auto 500px;
+
         ::selection {
             @apply bg-[var(--codeblock-selection)];
         }
+    }
+
+    /* Optimize rendering of code elements */
+    pre {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 300px;
+    }
+
+    /* Performance: Apply to all direct children for better granularity */
+    > p, > h1, > h2, > h3, > h4, > h5, > h6, > ul, > ol, > blockquote, > table {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 100px;
     }
 
 
@@ -118,6 +143,14 @@
         max-width: 100%;
         overflow-x: auto;
         margin: 1em 0;
+        /* Performance: Defer rendering of off-screen formulas */
+        content-visibility: auto;
+        contain-intrinsic-size: auto 100px;
+    }
+
+    .katex-display {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 80px;
     }
 
     table {

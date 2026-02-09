@@ -30,7 +30,6 @@ export function pluginLanguageBadge() {
         @media (hover: none) {
           & [data-language]::before {
             opacity: 1;
-            margin-right: 3rem;
           }
           & [data-language]:active::before {
             opacity: 0;

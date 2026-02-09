@@ -186,10 +186,16 @@ class TableOfContents extends HTMLElement {
             .find((element) => element instanceof HTMLAnchorElement);
 
         if (anchor) {
+            event.preventDefault(); // Prevent default jump behavior
             const id = decodeURIComponent(anchor.hash?.substring(1));
             const idx = this.headingIdxMap.get(id);
             if (idx !== undefined) {
                 this.anchorNavTarget = this.headings[idx];
+                // Smooth scroll to the heading
+                const heading = this.headings[idx];
+                if (heading) {
+                    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
             } else {
                 this.anchorNavTarget = null;
             }
