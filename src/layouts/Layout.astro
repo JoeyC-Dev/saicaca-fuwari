@@ -1,7 +1,5 @@
 ---
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/500.css";
-import "@fontsource/roboto/700.css";
+import "../styles/fonts.css";
 
 import { ClientRouter } from "astro:transitions";
 import ConfigCarrier from "@components/ConfigCarrier.astro";
@@ -19,7 +17,6 @@ import {
 import { defaultFavicons } from "../constants/icon";
 import type { Favicon } from "../types/config";
 import { pathsEqual, url } from "../utils/url-utils";
-import "katex/dist/katex.css";
 import { getCollection } from "astro:content";
 import CatWidget from '../components/widget/Cat.astro'
 
@@ -208,6 +205,14 @@ const bannerOffset =
 
 			document.documentElement.style.setProperty('--hue', hue);
 			document.documentElement.style.setProperty('--banner-height-extend', `${offset}px`);
+
+			// Disable smooth scroll when URL has a hash so the browser scrolls
+			// instantly to the target. Smooth scroll can be interrupted by layout
+			// changes from script initialization, causing "jump to target then
+			// back to top" behavior.
+			if (window.location.hash) {
+				document.documentElement.style.scrollBehavior = 'auto';
+			}
 		</script>
 		
 		{import.meta.env.PROD && <script is:inline define:vars={{scriptUrl: url('/pagefind/pagefind.js')}}>
@@ -482,6 +487,42 @@ function loadHue() {
 	setHue(getHue())
 }
 
+// Scroll to the current URL's hash target.
+// Uses multiple scroll methods to handle OverlayScrollbars on <body>,
+// which can interfere with native scroll functions.
+function scrollToHash() {
+	const hash = window.location.hash;
+	if (!hash) return;
+	const id = decodeURIComponent(hash.substring(1));
+	const target = document.getElementById(id);
+	if (!target) return;
+
+	// Force instant scroll behavior to prevent smooth scroll interference
+	document.documentElement.style.scrollBehavior = 'auto';
+
+	// Method 1: scrollIntoView (works with most setups including OS)
+	target.scrollIntoView({ behavior: 'instant', block: 'start' });
+
+	// Method 2: Also scroll OS viewport directly in case scrollIntoView
+	// doesn't work correctly when OS is initialized on body
+	const bodyEl = document.querySelector('body');
+	if (bodyEl) {
+		const osInstance = OverlayScrollbars(bodyEl);
+		if (osInstance) {
+			const viewport = osInstance.elements().viewport;
+			const rect = target.getBoundingClientRect();
+			if (Math.abs(rect.top) > 2) {
+				viewport.scrollTop += rect.top;
+			}
+		}
+	}
+
+	// Restore smooth scroll after a frame
+	requestAnimationFrame(() => {
+		document.documentElement.style.removeProperty('scroll-behavior');
+	});
+}
+
 function initCustomScrollbar() {
 	const bodyElement = document.querySelector('body');
 	if (!bodyElement) return;
@@ -608,12 +649,34 @@ function init() {
 	loadHue();
 	showBanner();
 
+	// If the URL has a hash, strip onload animations immediately so the
+	// content is visible and the browser can scroll to the anchor correctly.
+	// Without this, elements start at opacity:0 and the hash scroll may land
+	// on invisible content that shifts once animations complete.
+	const hasHash = !!window.location.hash;
+	if (hasHash) {
+		document.querySelectorAll('.onload-animation').forEach(el => {
+			if (el instanceof HTMLElement) {
+				el.classList.remove('onload-animation');
+				el.style.opacity = '1';
+			}
+		});
+		try { sessionStorage.setItem('onloadAnimationsDone', '1'); } catch {}
+	}
+
 	// Remove onload animations once they finish to prevent re-triggering
 	stripOnloadAnimations();
 
 	// Delay initCustomScrollbar to after animations complete
 	setTimeout(() => {
 		initCustomScrollbar();
+		// OverlayScrollbars initialization on body may reset scroll position.
+		// Re-scroll to hash target after OS is ready, with two attempts
+		// to handle async OS initialization.
+		if (window.location.hash) {
+			requestAnimationFrame(scrollToHash);
+			setTimeout(scrollToHash, 150);
+		}
 	}, 600);
 }
 
@@ -624,6 +687,11 @@ init();
 // Unified Transition Event Handlers
 // Works with both View Transitions API (Astro ClientRouter) and Swup fallback
 // ============================================================
+
+// Track whether current navigation targets a hash anchor.
+// When set, we skip page-height-extend (300vh) and strip onload animations
+// so that scroll position calculations for the hash target are correct.
+let navigatingToHash = '';
 
 // Progress bar - start loading animation
 function onTransitionStart() {
@@ -649,16 +717,22 @@ function onTransitionStart() {
 		}
 	}
 
-	// Increase the page height during page transition to prevent scrolling animation from jumping
-	const heightExtend = document.getElementById('page-height-extend');
-	if (heightExtend) {
-		heightExtend.classList.remove('hidden');
+	// Increase the page height during page transition to prevent scrolling animation from jumping.
+	// Skip this for hash navigation — the extra 300vh shifts all element positions,
+	// causing Astro's built-in hash scroll to land at the wrong location.
+	if (!navigatingToHash) {
+		const heightExtend = document.getElementById('page-height-extend');
+		if (heightExtend) {
+			heightExtend.classList.remove('hidden');
+		}
 	}
 
-	// Hide the TOC while scrolling back to top
-	let toc = document.getElementById('toc-wrapper');
-	if (toc) {
-		toc.classList.add('toc-not-ready');
+	// Hide the TOC while scrolling back to top (not needed for hash nav)
+	if (!navigatingToHash) {
+		let toc = document.getElementById('toc-wrapper');
+		if (toc) {
+			toc.classList.add('toc-not-ready');
+		}
 	}
 
 }
@@ -722,10 +796,14 @@ function onTransitionAfterSwap() {
 		(window as any).loadNavbarButtons();
 	}
 
-	// Keep page height extend visible during transition
-	const heightExtend = document.getElementById('page-height-extend');
-	if (heightExtend) {
-		heightExtend.classList.remove('hidden');
+	// Keep page height extend visible during transition.
+	// Skip for hash navigation — the extra 300vh shifts all element positions,
+	// causing the hash scroll to land at the wrong location.
+	if (!navigatingToHash) {
+		const heightExtend = document.getElementById('page-height-extend');
+		if (heightExtend) {
+			heightExtend.classList.remove('hidden');
+		}
 	}
 
 	// Update OverlayScrollbars immediately after DOM swap
@@ -790,23 +868,19 @@ function setupTransitionHandlers() {
 	const forceSwup = !supportsViewTransitions;
 
 	let pendingTitle = '';
-	let currentViewTransition: any = null;
 
 	if (!forceSwup) {
 		// Use View Transitions (Chrome/Safari/Firefox 128+)
 		console.log('[Layout] Setting up View Transitions handlers');
 
-		document.addEventListener('astro:before-preparation', () => {
+		document.addEventListener('astro:before-preparation', (event: any) => {
+			navigatingToHash = event.to?.hash || '';
 			onTransitionStart();
 		});
 
 		// astro:before-swap - copy theme/styles to new document to prevent black flash
 		document.addEventListener('astro:before-swap', (event: any) => {
 			console.log('[Layout] astro:before-swap triggered');
-		// Capture the ViewTransition object so we can await its `finished` promise
-		// before showing the progress bar ending animation. This ensures the
-		// ending animation is visible after VT pseudo-elements are removed.
-		currentViewTransition = event.viewTransition || null;
 
 		// Freeze the progress bar at its current visual position before the swap.
 		// transition:persist detaches/reattaches the element, which restarts CSS
@@ -821,6 +895,21 @@ function setupTransitionHandlers() {
 
 		const newDoc = event.newDocument;
 		if (newDoc && newDoc.documentElement) {
+			// For hash navigation, strip onload-animation from the new document
+			// BEFORE swap so content is immediately visible at correct positions.
+			// Without this, elements start at opacity:0 and Astro's hash scroll
+			// targets invisible content that may be at wrong positions.
+			if (navigatingToHash) {
+				newDoc.querySelectorAll('.onload-animation').forEach((el: Element) => {
+					el.classList.remove('onload-animation');
+					if (el instanceof HTMLElement) el.style.opacity = '1';
+				});
+				// Force instant scroll on new document so Astro's built-in
+				// hash scroll isn't smooth (smooth scroll can be interrupted
+				// by layout shifts from async content rendering).
+				newDoc.documentElement.style.scrollBehavior = 'auto';
+			}
+
 			// Prevent title flickering during head swap: save the new title and
 			// temporarily set it to match the current one so Astro's head diff
 			// won't touch the <title> element. We apply the real title after swap.
@@ -879,7 +968,22 @@ function setupTransitionHandlers() {
 			// time VT finishes and real DOM is revealed, both are near-transparent.
 			// This avoids the ~400ms delay from waiting for viewTransition.finished.
 			onTransitionEnd();
-			currentViewTransition = null;
+
+			if (navigatingToHash) {
+				// Re-scroll to hash target after dynamic content renders.
+				// Expressive code blocks, LaTeX, and images render asynchronously
+				// and may shift element positions after Astro's initial hash scroll.
+				// Also corrects for OverlayScrollbars resetting scroll during re-init.
+				// Multiple attempts at increasing intervals:
+				//   300ms — after onTransitionEnd's OS update at 200ms
+				//   800ms — after most async content (code blocks, LaTeX) renders
+				//  1500ms — final attempt for slow content (images, heavy LaTeX)
+				setTimeout(scrollToHash, 300);
+				setTimeout(scrollToHash, 800);
+				setTimeout(scrollToHash, 1500);
+			}
+
+			navigatingToHash = '';
 		});
 	} else {
 		// Use Swup (browsers without View Transitions API)
@@ -897,23 +1001,44 @@ function setupTransitionHandlers() {
 
 			console.log('[Layout] Swup handlers configured');
 
-			window.swup.hooks.on('visit:start', () => {
+			window.swup.hooks.on('visit:start', (visit: any) => {
+				navigatingToHash = visit.to?.hash || '';
 				onTransitionStart();
 			});
 
 			window.swup.hooks.on('content:replace', () => {
+				// For hash navigation, strip onload animations and force instant
+				// scroll so content is visible and positioned correctly.
+				if (navigatingToHash) {
+					document.querySelectorAll('.onload-animation').forEach((el: Element) => {
+						el.classList.remove('onload-animation');
+						if (el instanceof HTMLElement) el.style.opacity = '1';
+					});
+					document.documentElement.style.scrollBehavior = 'auto';
+				}
 				onTransitionAfterSwap();
 			});
 
 			window.swup.hooks.on('page:view', () => {
-				const heightExtend = document.getElementById('page-height-extend');
-				if (heightExtend) {
-					heightExtend.classList.remove('hidden');
+				// Skip page-height-extend for hash navigation
+				if (!navigatingToHash) {
+					const heightExtend = document.getElementById('page-height-extend');
+					if (heightExtend) {
+						heightExtend.classList.remove('hidden');
+					}
 				}
 			});
 
 			window.swup.hooks.on('visit:end', () => {
 				onTransitionEnd();
+
+				if (navigatingToHash) {
+					setTimeout(scrollToHash, 300);
+					setTimeout(scrollToHash, 800);
+					setTimeout(scrollToHash, 1500);
+				}
+
+				navigatingToHash = '';
 			});
 		};
 
