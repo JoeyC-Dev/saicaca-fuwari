@@ -213,6 +213,22 @@ const bannerOffset =
 			if (window.location.hash) {
 				document.documentElement.style.scrollBehavior = 'auto';
 			}
+
+			// Detect page reload while scrolled — hide page until we can
+			// restore scroll position, then reveal at the correct location.
+			try {
+				const saved = JSON.parse(sessionStorage.getItem('scrollPos') || '{}');
+				if (saved.path === location.pathname && saved.pos > 0 && !window.location.hash) {
+					document.documentElement.dataset.scrollRestore = String(saved.pos);
+					history.scrollRestoration = 'manual';
+					// Hide page until scroll is restored — avoids showing wrong position
+					document.documentElement.style.opacity = '0';
+					const s = document.createElement('style');
+					s.textContent = '.onload-animation{animation:none!important;opacity:1!important;}';
+					document.head.appendChild(s);
+				}
+				sessionStorage.removeItem('scrollPos');
+			} catch {}
 		</script>
 		
 		{import.meta.env.PROD && <script is:inline define:vars={{scriptUrl: url('/pagefind/pagefind.js')}}>
@@ -521,6 +537,10 @@ function scrollToHash() {
 	requestAnimationFrame(() => {
 		document.documentElement.style.removeProperty('scroll-behavior');
 	});
+
+	// Update UI state (TOC visibility, back-to-top, navbar) since
+	// programmatic viewport.scrollTop doesn't fire window.onscroll.
+	scrollFunction();
 }
 
 function initCustomScrollbar() {
@@ -667,17 +687,49 @@ function init() {
 	// Remove onload animations once they finish to prevent re-triggering
 	stripOnloadAnimations();
 
-	// Delay initCustomScrollbar to after animations complete
+	const scrollRestore = parseInt(document.documentElement.dataset.scrollRestore || '0');
+
+	// Normal OS init at 600ms (let animations complete first)
 	setTimeout(() => {
 		initCustomScrollbar();
-		// OverlayScrollbars initialization on body may reset scroll position.
-		// Re-scroll to hash target after OS is ready, with two attempts
-		// to handle async OS initialization.
 		if (window.location.hash) {
 			requestAnimationFrame(scrollToHash);
 			setTimeout(scrollToHash, 150);
 		}
 	}, 600);
+
+	// Scroll restoration for F5 refresh: don't fight async resets — instead,
+	// let everything initialize, then scroll to saved position and reveal page.
+	if (scrollRestore > 0) {
+		const doRestore = () => {
+			const bodyEl = document.querySelector('body');
+			const os = bodyEl ? OverlayScrollbars(bodyEl) : null;
+			if (os) {
+				os.elements().viewport.scrollTop = scrollRestore;
+			}
+			document.documentElement.scrollTop = scrollRestore;
+			document.body.scrollTop = scrollRestore;
+		};
+
+		// Primary restore: OS init (600ms) + async settle buffer (300ms)
+		setTimeout(() => {
+			doRestore();
+			// Reveal page at the correct scroll position
+			document.documentElement.style.opacity = '';
+		}, 900);
+
+		// Safety net re-checks for late async resets
+		setTimeout(doRestore, 1200);
+		setTimeout(doRestore, 1800);
+
+		// Cleanup after all restores complete
+		setTimeout(() => {
+			delete document.documentElement.dataset.scrollRestore;
+			try { history.scrollRestoration = 'auto'; } catch {}
+			// Failsafe: ensure page is visible
+			document.documentElement.style.opacity = '';
+		}, 2000);
+	}
 }
 
 /* Load settings when entering the site */
@@ -852,11 +904,17 @@ function onTransitionEnd() {
 
 		// Force OverlayScrollbars to recalculate scroll height after transition
 		// This fixes Safari scrollbar getting stuck at top during View Transitions
+		// Save/restore scroll position — update(true) can reset viewport scrollTop
 		const bodyElement = document.querySelector('body');
 		if (bodyElement) {
 			const osInstance = OverlayScrollbars(bodyElement);
 			if (osInstance) {
+				const viewport = osInstance.elements().viewport;
+				const savedScroll = viewport.scrollTop;
 				osInstance.update(true);
+				if (viewport.scrollTop !== savedScroll) {
+					viewport.scrollTop = savedScroll;
+				}
 			}
 		}
 	}, 200);
@@ -1054,6 +1112,22 @@ function setupTransitionHandlers() {
 }
 
 setupTransitionHandlers();
+
+// Save scroll position before unload so we can restore it on F5 refresh.
+// Reads from OverlayScrollbars viewport (the actual scroll container) if active.
+window.addEventListener('beforeunload', () => {
+	try {
+		const bodyEl = document.querySelector('body');
+		const os = bodyEl ? OverlayScrollbars(bodyEl) : null;
+		const scrollTop = os
+			? os.elements().viewport.scrollTop
+			: (document.documentElement.scrollTop || document.body.scrollTop);
+		sessionStorage.setItem('scrollPos', JSON.stringify({
+			path: location.pathname,
+			pos: scrollTop
+		}));
+	} catch {}
+});
 
 let backToTopBtn: HTMLElement | null = document.getElementById('back-to-top-btn');
 let toc: HTMLElement | null = document.getElementById('toc-wrapper');

@@ -176,5 +176,18 @@
     tr:nth-child(even) td {
         @apply bg-[var(--btn-plain-bg-hover)];
     }
-    
+
+    /* Override content-visibility during TOC navigation to prevent layout shift.
+       Applied temporarily by TOC.astro handleAnchorClick so all elements have
+       actual heights before the scroll animation starts. */
+    &.cv-force-visible {
+        .expressive-code,
+        pre,
+        > p, > h1, > h2, > h3, > h4, > h5, > h6, > ul, > ol, > blockquote, > table,
+        .katex-display-container,
+        .katex-display {
+            content-visibility: visible !important;
+        }
+    }
+
 }

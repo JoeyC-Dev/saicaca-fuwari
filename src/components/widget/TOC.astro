@@ -71,6 +71,7 @@ class TableOfContents extends HTMLElement {
     tocEntries: HTMLAnchorElement[] = [];
     active: boolean[] = [];
     scrollCorrectionTimers: number[] = [];
+    resizeObserver: ResizeObserver | null = null;
     scrollAnimationId: number = 0;
     activeIndicator: HTMLElement | null = null;
     updatePending = false;
@@ -248,20 +249,38 @@ class TableOfContents extends HTMLElement {
                 // Cancel any pending scroll corrections from a previous click
                 this.scrollCorrectionTimers.forEach(clearTimeout);
                 this.scrollCorrectionTimers = [];
+                this.resizeObserver?.disconnect();
+                this.resizeObserver = null;
 
                 const heading = this.headings[idx];
                 if (heading) {
+                    // Force all content-visibility:auto elements to render at
+                    // actual heights so scroll positions are accurate.
+                    const mdContainer = document.querySelector('.custom-md');
+                    if (mdContainer) mdContainer.classList.add('cv-force-visible');
+
                     this.fastScrollTo(heading);
-                    // Re-scroll after async content (expressive code, LaTeX, images)
-                    // finishes rendering and potentially shifts element positions.
+                    // Correct scroll if async content (expressive code, LaTeX,
+                    // tables, images) renders and shifts element positions.
                     const correctScroll = () => {
                         if (Math.abs(heading.getBoundingClientRect().top) > 2) {
                             heading.scrollIntoView({ behavior: 'instant', block: 'start' });
                         }
                     };
+                    // ResizeObserver reacts instantly to any layout shift
+                    const heavyElements = document.querySelectorAll<HTMLElement>('.expressive-code, .katex-display');
+                    this.resizeObserver = new ResizeObserver(() => correctScroll());
+                    heavyElements.forEach(el => this.resizeObserver!.observe(el));
+                    // Timed fallbacks for shifts not caught by ResizeObserver
                     this.scrollCorrectionTimers.push(
                         setTimeout(correctScroll, 800) as unknown as number,
-                        setTimeout(correctScroll, 1000) as unknown as number,
+                        setTimeout(correctScroll, 1500) as unknown as number,
+                        setTimeout(() => {
+                            this.resizeObserver?.disconnect();
+                            this.resizeObserver = null;
+                            // Restore content-visibility:auto for performance
+                            if (mdContainer) mdContainer.classList.remove('cv-force-visible');
+                        }, 10000) as unknown as number,
                     );
                 }
             }

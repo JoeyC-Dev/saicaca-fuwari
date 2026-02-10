@@ -122,6 +122,13 @@ h1, h2, h3, h4, h5, h6, p, a, span, li, ul, ol, blockquote, code, pre, table, th
     @apply bg-[oklch(0.75_0.14_var(--hue))] dark:bg-[oklch(0.75_0.14_var(--hue))];
 }
 
+/* Scroll anchoring: prevent scroll position from shifting when off-screen
+   content (Expressive Code, LaTeX) renders and changes height.
+   Explicit on the OverlayScrollbars viewport since it's the actual scroll container. */
+[data-overlayscrollbars-viewport] {
+    overflow-anchor: auto;
+}
+
 .custom-md img, #post-cover img {
     @apply cursor-zoom-in;
 }

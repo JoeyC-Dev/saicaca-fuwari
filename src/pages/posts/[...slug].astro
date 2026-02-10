@@ -47,17 +47,6 @@ const jsonLd = {
 ---
 <MainGridLayout banner={entry.data.image} title={entry.data.title} description={entry.data.description} lang={entry.data.lang} setOGTypeArticle={true} headings={headings}>
     <script is:inline slot="head" type="application/ld+json" set:html={JSON.stringify(jsonLd)}></script>
-    <script is:inline slot="head">
-        // CRITICAL: Ensure content is immediately scrollable
-        document.addEventListener('DOMContentLoaded', function() {
-            const markdownContent = document.querySelector('.markdown-content');
-            if (markdownContent) {
-                markdownContent.style.opacity = '1';
-                markdownContent.style.transform = 'none';
-                markdownContent.style.animation = 'none';
-            }
-        });
-    </script>
     <div class="flex w-full rounded-[var(--radius-large)] overflow-hidden relative mb-4">
         <div id="post-container" class:list={["card-base z-10 px-6 md:px-9 pt-6 pb-4 relative w-full ",
             {}
@@ -149,22 +138,10 @@ const jsonLd = {
 </MainGridLayout>
 
 <script>
-// Progressive rendering optimization for long blog posts
-// This ensures the page remains responsive even with large amounts of content
-
-function optimizePostRendering() {
+function lazyLoadImages() {
     const postContainer = document.getElementById('post-container');
     if (!postContainer) return;
 
-    // Enable immediate scrolling by ensuring content is visible
-    const markdownContent = postContainer.querySelector('.markdown-content') as HTMLElement;
-    if (markdownContent) {
-        // Force immediate visibility to prevent scroll blocking
-        markdownContent.style.opacity = '1';
-        markdownContent.style.transform = 'none';
-    }
-
-    // Lazy load images that are not in viewport
     const images = postContainer.querySelectorAll('img');
     if ('loading' in HTMLImageElement.prototype) {
         images.forEach(img => {
@@ -173,39 +150,14 @@ function optimizePostRendering() {
             }
         });
     }
-
-    // Optimize code blocks with intersection observer for syntax highlighting
-    const codeBlocks = postContainer.querySelectorAll('pre');
-    if (codeBlocks.length > 5) {
-        const observerOptions = {
-            rootMargin: '50px 0px',
-            threshold: 0.01
-        };
-
-        const codeObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const pre = entry.target as HTMLElement;
-                    pre.style.contentVisibility = 'auto';
-                    codeObserver.unobserve(pre);
-                }
-            });
-        }, observerOptions);
-
-        codeBlocks.forEach(block => {
-            codeObserver.observe(block);
-        });
-    }
 }
 
-// Run immediately on page load
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', optimizePostRendering);
+    document.addEventListener('DOMContentLoaded', lazyLoadImages);
 } else {
-    optimizePostRendering();
+    lazyLoadImages();
 }
 
-// Re-run after page transitions (Astro View Transitions)
-document.addEventListener('astro:after-swap', optimizePostRendering);
-document.addEventListener('astro:page-load', optimizePostRendering);
+document.addEventListener('astro:after-swap', lazyLoadImages);
+document.addEventListener('astro:page-load', lazyLoadImages);
 </script>

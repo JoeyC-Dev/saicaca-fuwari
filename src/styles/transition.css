@@ -112,12 +112,17 @@ a:focus-visible, button:focus-visible {
 }
 
 /* Card/panel hover effects */
-.card, .panel, [class*="card"] {
+.card, .panel, .btn-card, .card-base {
     transition: transform 200ms ease-out, box-shadow 200ms ease-out;
 }
 
-.card:hover, .panel:hover, [class*="card"]:hover {
+.card:hover, .panel:hover, .btn-card:hover, .card-base:hover {
     transform: translateY(-2px);
+}
+
+/* Post container is a static content area, not a clickable card */
+#post-container:hover {
+    transform: none;
 }
 
 /* Loading states */
@@ -312,7 +317,7 @@ a:focus-visible, button:focus-visible {
 
     /* Disable micro-interactions */
     a, button, .clickable,
-    .card, .panel, [class*="card"] {
+    .card, .panel, .btn-card, .card-base {
         transition-duration: 0ms;
     }
 
